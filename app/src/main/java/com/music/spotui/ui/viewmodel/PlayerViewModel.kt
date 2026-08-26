@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.music.spotui.data.api.Response
 import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.di.CurrentSongState
+import com.music.spotui.playback.EchoBrainCoordinator
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.navigation.artistRoute
 import com.music.spotui.ui.repository.AppRepository
@@ -23,7 +24,11 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
-class PlayerViewModel @Inject constructor(private val currentSongState: CurrentSongState, private val repository: AppRepository) : ViewModel(){
+class PlayerViewModel @Inject constructor(
+    private val currentSongState: CurrentSongState,
+    private val repository: AppRepository,
+    private val echoBrainCoordinator: EchoBrainCoordinator,
+) : ViewModel(){
 
     val currentSongTitle: State<String> get() = currentSongState.title
     val currentSongSinger: State<String> get() = currentSongState.singer
@@ -82,6 +87,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
     val playingArtist by mutableStateOf(currentSongSinger.value)
 
     init {
+        echoBrainCoordinator.activate()
         fetchSongs()
     }
 

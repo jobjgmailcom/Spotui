@@ -21,6 +21,7 @@ import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.di.CurrentSongState
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.di.SpotifyWebPlayer
+import com.music.spotui.playback.EchoBrainCoordinator
 import com.music.spotui.ui.repository.AppRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,7 @@ class PlaybackService : MediaLibraryService() {
 
     @Inject lateinit var currentSongState: CurrentSongState
     @Inject lateinit var repository: AppRepository
+    @Inject lateinit var echoBrainCoordinator: EchoBrainCoordinator
 
     private var mediaSession: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -62,6 +64,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        echoBrainCoordinator.activate()
         SongPlayer.ensureCreated(this)
         // Let the player advance the in-app queue itself during a crossfade.
         SongPlayer.bindState(currentSongState)

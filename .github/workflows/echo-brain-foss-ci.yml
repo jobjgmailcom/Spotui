@@ -1,0 +1,77 @@
+name: Spotui Echo Brain FOSS APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-foss-debug:
+    name: Verify Spotui Echo Brain and build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+      ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 35 build components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Show toolchain versions
+        run: |
+          java -version
+          ./gradlew --version
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" version
+
+      - name: Test Spotui Echo Brain FOSS
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=1
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --max-workers=1
+
+      - name: Verify FOSS APK and write checksum
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep '^package:'
+          "$BUILD_TOOLS/apksigner" verify --verbose --min-sdk-version 26 "$APK"
+          TMP="$(mktemp)"
+          while IFS= read -r dex; do unzip -p "$APK" "$dex" >> "$TMP"; done < <(unzip -Z1 "$APK" | grep -E '^classes[0-9]*\.dex$')
+          if grep -aEq 'Lcom/google/(firebase|android/gms)/|Landroidx/media3/cast/' "$TMP" || unzip -l "$APK" | grep -Eiq 'firebase|play-services|media3.cast'; then
+            rm -f "$TMP"
+            echo 'La APK contiene una dependencia no permitida para la variante FOSS.' >&2
+            exit 1
+          fi
+          rm -f "$TMP"
+          cp "$APK" app/spotui-echo-brain-foss-debug.apk
+          sha256sum app/spotui-echo-brain-foss-debug.apk > app/spotui-echo-brain-foss-debug.apk.sha256
+
+      - name: Upload Spotui Echo Brain FOSS debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spotui-Echo-Brain-FOSS-debug
+          if-no-files-found: error
+          path: |
+            app/spotui-echo-brain-foss-debug.apk
+            app/spotui-echo-brain-foss-debug.apk.sha256

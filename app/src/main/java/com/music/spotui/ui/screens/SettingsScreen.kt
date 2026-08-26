@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
 import com.music.spotui.data.preferences.CROSSFADE_MAX_MS
+import com.music.spotui.data.preferences.EchoBrainSettings
+import com.music.spotui.data.preferences.EchoBrainSimilarity
 import com.music.spotui.data.preferences.StreamQuality
 import com.music.spotui.data.preferences.getCellularQuality
 import com.music.spotui.data.preferences.getCrossfadeMs
@@ -70,6 +72,9 @@ fun SettingsScreen(navController: NavController) {
     var dlQ by remember { mutableStateOf(getDownloadQuality(context)) }
     var crossfadeMs by remember { mutableStateOf(getCrossfadeMs(context).toFloat()) }
     var videoFallback by remember { mutableStateOf(isVideoFallbackEnabled(context)) }
+    var echoBrainEnabled by remember { mutableStateOf(EchoBrainSettings.isEnabled(context)) }
+    var echoBrainSimilarity by remember { mutableStateOf(EchoBrainSettings.getSimilarity(context)) }
+    var echoBrainAlternatives by remember { mutableStateOf(EchoBrainSettings.allowAlternativeVersions(context)) }
     // Read fresh each composition so returning from the Deezer login reflects it.
     val deezerConnected = com.music.spotui.data.preferences.getDeezerArl(context) != null
     val deezerTier = com.music.spotui.data.preferences.getDeezerTier(context)
@@ -132,6 +137,49 @@ fun SettingsScreen(navController: NavController) {
                 fontSize = 12.sp,
                 modifier = Modifier.padding(start = 4.dp, top = 6.dp),
             )
+
+            Spacer(Modifier.height(12.dp))
+            SectionTitle("Echo Brain")
+            SettingsSwitchRow(
+                title = "Enable Echo Brain",
+                subtitle = "Insert one safe Spotify-radio recommendation after the active song",
+                checked = echoBrainEnabled,
+            ) {
+                echoBrainEnabled = it
+                EchoBrainSettings.setEnabled(context, it)
+            }
+            if (echoBrainEnabled) {
+                EchoBrainSimilarity.entries.forEach { level ->
+                    val selected = echoBrainSimilarity == level
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { echoBrainSimilarity = level; EchoBrainSettings.setSimilarity(context, level) }
+                            .background(if (selected) Color(0xFF1A1A20) else Color.Transparent)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(level.label, color = Color.White, fontSize = 15.sp)
+                            Text(
+                                "90/80 favor artista y álbum; 70/60 permiten radio Spotify más amplia",
+                                color = Color(0xFFB3B3B3), fontSize = 12.sp,
+                            )
+                        }
+                        if (selected) Icon(Icons.Filled.Check, "Selected", tint = AppPalette, modifier = Modifier.size(20.dp))
+                    }
+                }
+                SettingsSwitchRow(
+                    title = "Allow alternative versions",
+                    subtitle = "Permit remixes, live, acoustic and alternate edits",
+                    checked = echoBrainAlternatives,
+                ) {
+                    echoBrainAlternatives = it
+                    EchoBrainSettings.setAllowAlternativeVersions(context, it)
+                }
+                Text(EchoBrainSettings.getDiagnostic(context), color = Color(0xFFB3B3B3), fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+            }
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Matching")

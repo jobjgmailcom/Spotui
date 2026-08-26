@@ -35,6 +35,10 @@ class CurrentSongState @Inject constructor() {
     private val _queue: MutableState<List<SongsModel>> = mutableStateOf(emptyList())
     val queue: State<List<SongsModel>> get() = _queue
 
+    /** Bound by Echo Brain. Kept as a callback to avoid making this state holder depend on recommendation code. */
+    @Volatile
+    var onTrackStarted: ((SongsModel, List<SongsModel>, Int, Boolean) -> Unit)? = null
+
     fun updateQueue(songs: List<SongsModel>) {
         _queue.value = songs
         // Seed the lossless resolver: map each track's play query → its Spotify id so
@@ -164,8 +168,15 @@ class CurrentSongState @Inject constructor() {
                     singer = singer,
                     album = album,
                     image = coverUri,
-                ),
+                )
             )
+        }
+        if (playingState) {
+            val queueSnapshot = _queue.value
+            val activeIndex = queueSnapshot.indexOfFirst { it.id == songId }
+            if (activeIndex >= 0) {
+                onTrackStarted?.invoke(queueSnapshot[activeIndex], queueSnapshot, activeIndex, repeat.value)
+            }
         }
     }
 }
