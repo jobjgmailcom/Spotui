@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -40,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -93,9 +95,10 @@ fun SpotifyLoginScreen(navController: NavController) {
     var showPassword by remember { mutableStateOf(false) }
 
     var isProcessing by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
     var statusMessage by remember { mutableStateOf("") }
     var hasError by remember { mutableStateOf(false) }
-    var showWebFallback by remember { mutableStateOf(false) }
+    var webViewGeneration by remember { mutableStateOf(0) }
 
     val pageReady = remember { AtomicBoolean(false) }
     val tokenFetchStarted = remember { AtomicBoolean(false) }
@@ -134,44 +137,167 @@ fun SpotifyLoginScreen(navController: NavController) {
         }
     }
 
+    // A WebView that never reaches a visible document used to leave only a black
+    // rectangle. Give the user a concrete retry path instead of an endless blank page.
+    LaunchedEffect(webViewGeneration) {
+        delay(15_000)
+        if (!pageReady.get() && !hasError) {
+            isLoading = false
+            hasError = true
+            statusMessage = SpotifyLoginWebPolicy.EMPTY_PAGE_ERROR
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         // Login is 100% Spotify's own web page in a full-screen WebView — no custom
         // form or credential injection. We just watch for the sp_dc cookie (polled
         // above) to know when the user has signed in, then exchange it for a token.
-        AndroidView(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 40.dp),
-            factory = { ctx ->
-                val cookieManager = CookieManager.getInstance()
-                cookieManager.setAcceptCookie(true)
-                cookieManager.removeAllCookies(null)
-                cookieManager.flush()
+        key(webViewGeneration) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize().statusBarsPadding().padding(top = 40.dp),
+                factory = { ctx ->
+                    val cookieManager = CookieManager.getInstance()
+                    cookieManager.setAcceptCookie(true)
 
-                WebView(ctx).apply {
-                    webViewRef = this
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.databaseEnabled = true
-                    settings.loadWithOverviewMode = true
-                    settings.useWideViewPort = true
-                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                    settings.javaScriptCanOpenWindowsAutomatically = true
-                    // Keep the WebView's REAL (mobile Chrome) User-Agent for login —
-                    // a spoofed desktop UA on a phone trips Spotify's reCAPTCHA bot
-                    // check and it wrongly returns "Incorrect email or password".
+                    WebView(ctx).apply {
+                        webViewRef = this
+                        setBackgroundColor(android.graphics.Color.WHITE)
+                        cookieManager.setAcceptThirdPartyCookies(this, true)
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.databaseEnabled = true
+                        settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                        settings.loadWithOverviewMode = true
+                        settings.useWideViewPort = true
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                        settings.javaScriptCanOpenWindowsAutomatically = false
+                        // Spotify can reject WebView's default `; wv` user agent before
+                        // rendering any form. The standard Chrome identity avoids that
+                        // opaque response while preserving a normal, user-driven login.
+                        settings.userAgentString = USER_AGENT_DESKTOP
 
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            pageReady.set(false)
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                pageReady.set(false)
+                                isLoading = true
+                                hasError = false
+                            }
+
+                            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                                pageReady.set(true)
+                                isLoading = false
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                view?.postVisualStateCallback(0L, object : WebView.VisualStateCallback() {
+                                    override fun onComplete(requestId: Long) {
+                                        pageReady.set(true)
+                                        isLoading = false
+                                    }
+                                })
+                            }
+
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: android.webkit.WebResourceRequest?,
+                                error: android.webkit.WebResourceError?,
+                            ) {
+                                if (request?.isForMainFrame == true) {
+                                    isLoading = false
+                                    hasError = true
+                                    statusMessage = SpotifyLoginWebPolicy.networkError(
+                                        error?.errorCode ?: -1,
+                                        error?.description?.toString().orEmpty(),
+                                    )
+                                    Timber.w("Spotify login WebView error: %s", statusMessage)
+                                }
+                            }
+
+                            override fun onReceivedHttpError(
+                                view: WebView?,
+                                request: android.webkit.WebResourceRequest?,
+                                errorResponse: android.webkit.WebResourceResponse?,
+                            ) {
+                                if (request?.isForMainFrame == true) {
+                                    isLoading = false
+                                    hasError = true
+                                    statusMessage = SpotifyLoginWebPolicy.httpError(errorResponse?.statusCode ?: 0)
+                                    Timber.w("Spotify login WebView HTTP error: %s", statusMessage)
+                                }
+                            }
+
+                            override fun onRenderProcessGone(
+                                view: WebView?,
+                                detail: RenderProcessGoneDetail?,
+                            ): Boolean {
+                                view?.destroy()
+                                webViewRef = null
+                                isLoading = false
+                                hasError = true
+                                statusMessage = SpotifyLoginWebPolicy.RENDERER_ERROR
+                                Timber.w("Spotify login renderer exited; crashed=%s", detail?.didCrash())
+                                return true
+                            }
+
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: android.webkit.WebResourceRequest?,
+                            ): Boolean {
+                                val scheme = request?.url?.scheme?.lowercase()
+                                return scheme != null && scheme !in setOf("https", "http")
+                            }
                         }
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            pageReady.set(true)
+
+                        // Wait for async cookie removal to complete before the first
+                        // navigation; loading concurrently can leave the login document blank.
+                        cookieManager.removeAllCookies {
+                            cookieManager.flush()
+                            loadUrl(SpotifyAuth.LOGIN_URL)
                         }
                     }
-                    loadUrl(SpotifyAuth.LOGIN_URL)
-                }
-            },
-        )
+                },
+                onRelease = { view ->
+                    if (webViewRef === view) webViewRef = null
+                    view.stopLoading()
+                    view.destroy()
+                },
+            )
+        }
+
+        if (isLoading && !hasError) {
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 2.dp,
+                modifier = Modifier.align(Alignment.Center).size(28.dp),
+            )
+        }
+
+        if (hasError) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xF2121212))
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("No se pudo abrir Spotify", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text(statusMessage, color = Color(0xFFB3B3B3), fontSize = 14.sp, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(20.dp))
+                Button(
+                    onClick = {
+                        pageReady.set(false)
+                        hasError = false
+                        isLoading = true
+                        statusMessage = ""
+                        webViewGeneration += 1
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(SPOTIFY_GREEN), contentColor = Color.Black),
+                    shape = RoundedCornerShape(50),
+                ) { Text("Reintentar", fontWeight = FontWeight.Bold) }
+            }
+        }
 
         // Slim top bar: title, or the "Signing in…" status once the cookie lands.
         Box(
