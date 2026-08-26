@@ -15,7 +15,6 @@ jobs:
     timeout-minutes: 45
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
-      ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
     steps:
       - name: Check out source
