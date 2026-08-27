@@ -11,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
-import com.music.spotui.data.api.SpotifySession
 import com.music.spotui.ui.screens.SpotifyLoginScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -57,12 +56,9 @@ fun MyNavHost(
 //    player = ExoPlayer.Builder(context).build()
 
     val context = LocalContext.current
-    // First launch (no Spotify session) lands on the login screen.
-    val startDestination = if (SpotifySession.spDc(context).isBlank()) {
-        Routes.Login.route
-    } else {
-        Routes.Home.route
-    }
+    // Spotify metadata is optional. Audio configuration (Deezer/local/other
+    // sources) must remain reachable when Spotify's web login is unavailable.
+    val startDestination = Routes.Home.route
 
     // Restore the last session: put the track back into the mini player (paused)
     // and arm the player to resume from the saved position on the first play tap.

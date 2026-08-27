@@ -3,10 +3,9 @@ package com.music.spotui.data.api
 import android.content.Context
 
 /**
- * Stores the logged-in Spotify `sp_dc` cookie used to mint web access tokens.
- *
- * Set it once (e.g. from a settings screen) with [setSpDc]. To get yours: log in
- * at open.spotify.com, open devtools → Application → Cookies → copy `sp_dc`.
+ * Keeps a legacy Spotify web session only for users who already had one stored
+ * before embedded Spotify login was removed. New sessions are not collected by
+ * the application and playback never depends on this value.
  */
 object SpotifySession {
     private const val PREFS = "spotify_session"

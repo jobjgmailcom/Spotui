@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.music.spotui.data.api.SpotifySession
 import com.music.spotui.data.preferences.CROSSFADE_MAX_MS
 import com.music.spotui.data.preferences.EchoBrainSettings
 import com.music.spotui.data.preferences.EchoBrainSimilarity
@@ -79,6 +80,7 @@ fun SettingsScreen(navController: NavController) {
     val deezerConnected = com.music.spotui.data.preferences.getDeezerArl(context) != null
     val deezerTier = com.music.spotui.data.preferences.getDeezerTier(context)
     var deezerEnabled by remember { mutableStateOf(com.music.spotui.data.preferences.isDeezerEnabled(context)) }
+    var spotifyMetadataConnected by remember { mutableStateOf(SpotifySession.spDc(context).isNotBlank()) }
 
     Scaffold(
         containerColor = AppBackground,
@@ -140,6 +142,14 @@ fun SettingsScreen(navController: NavController) {
 
             Spacer(Modifier.height(12.dp))
             SectionTitle("Echo Brain")
+            if (!spotifyMetadataConnected) {
+                Text(
+                    text = "Echo Brain is ready, but it cannot fetch or insert Spotify-radio candidates until Spotify metadata has a supported connection. Deezer playback remains available.",
+                    color = Color(0xFFB3B3B3),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                )
+            }
             SettingsSwitchRow(
                 title = "Enable Echo Brain",
                 subtitle = "Insert one safe Spotify-radio recommendation after the active song",
@@ -306,24 +316,34 @@ fun SettingsScreen(navController: NavController) {
             }
 
             Spacer(Modifier.height(12.dp))
-            SectionTitle("Account")
+            SectionTitle("Spotify metadata")
             Text(
-                text = "Log out",
-                color = Color(0xFFE57373),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable {
-                        com.music.spotui.data.api.SpotifySession.setSpDc(context, "")
-                        com.music.spotui.data.api.Api.HomeCache.clear()
-                        navController.navigate(com.music.spotui.ui.navigation.Routes.Login.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    }
-                    .padding(vertical = 14.dp)
+                text = if (spotifyMetadataConnected) {
+                    "A legacy Spotify metadata session is stored locally. It is used only for catalog, radio and library data; Deezer remains the preferred audio source."
+                } else {
+                    "No Spotify metadata session is connected. Deezer, local files and other audio sources remain available. Spotify catalog, radio, library sync and Echo Brain injection wait for a supported Spotify connection."
+                },
+                color = Color(0xFFB3B3B3),
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 6.dp),
             )
+            if (spotifyMetadataConnected) {
+                Text(
+                    text = "Remove legacy Spotify metadata session",
+                    color = Color(0xFFE57373),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable {
+                            SpotifySession.setSpDc(context, "")
+                            com.music.spotui.data.api.Api.HomeCache.clear()
+                            spotifyMetadataConnected = false
+                        }
+                        .padding(vertical = 14.dp),
+                )
+            }
             Spacer(Modifier.height(40.dp))
         }
     }
